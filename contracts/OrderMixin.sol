@@ -469,9 +469,9 @@ abstract contract OrderMixin is
         bytes32 orderHash = hashOrder(order);
         // solhint-disable-next-line 
         require(block.timestamp > order.endTimestamp || isOrderDefaulted[orderHash], "LOP: Order yet not matured");
-        uint256 fixedTokens = orderParticipantFixedTokens[orderHash][settler];
-        uint256 variableTokens = orderParticipantVariableTokens[orderHash][settler];
-        uint256 margin = orderParticipantMargin[orderHash][settler];
+        uint256 fixedTokens = 4000000; // orderParticipantFixedTokens[orderHash][settler];
+        uint256 variableTokens = 1000; // orderParticipantVariableTokens[orderHash][settler];
+        uint256 margin = 5000; // orderParticipantMargin[orderHash][settler];
         require(margin > 0, "LOP: No margin provided");
         // Get actual APY over the order period
         (int128 orderPeriodActualAPY, ) = getAverageAccruedAPYBetweenTimestamps(
@@ -481,61 +481,71 @@ abstract contract OrderMixin is
             order.endTimestamp
         ); 
         uint256 onePercentFixedTokens = fixedTokens;
-        uint256 onePercentVariableTokens = ABDKMath64x64.mulu(orderPeriodActualAPY, variableTokens);
+        uint256 onePercentVariableTokens = ABDKMath64x64.mulu(orderPeriodActualAPY, variableTokens) * 100;
+        console.log("Fixed and variable tokens:");
+        console.log(onePercentFixedTokens);
+        console.log(onePercentVariableTokens);
+        int128 term = order.t;
         uint256 orderReturn;
         if(isOrderDefaulted[orderHash]) {
             uint256 defaultedFundsShare = defaultedFunds[orderHash] / _orderNumTakers[orderHash];
             orderReturn = margin + defaultedFundsShare;
         } else {
             if(order.isFixedTaker) {
+                console.log("Fixed");
                 if(settler == order.maker) {
+                    console.log("Maker");
                     if(onePercentFixedTokens >= onePercentVariableTokens) {
-                        uint256 diff = (onePercentFixedTokens - onePercentVariableTokens) / 100;
+                        uint256 diff = ABDKMath64x64.mulu(term, onePercentFixedTokens - onePercentVariableTokens) / 100;
                         orderReturn = margin + diff;
                     } else {
-                        uint256 diff = (onePercentVariableTokens - onePercentFixedTokens) / 100;
+                        uint256 diff = ABDKMath64x64.mulu(term, onePercentVariableTokens - onePercentFixedTokens) / 100;
                         assert(diff <= margin);
                         orderReturn = margin - diff; 
                     }
                 } else {
+                    console.log("Non-maker");
                     if(onePercentVariableTokens >= onePercentFixedTokens) {
-                        uint256 diff = (onePercentVariableTokens - onePercentFixedTokens) / 100;
+                        uint256 diff = ABDKMath64x64.mulu(term, onePercentVariableTokens - onePercentFixedTokens) / 100;
                         orderReturn = margin + diff;
                     } else {
-                        uint256 diff = (onePercentFixedTokens - onePercentVariableTokens) / 100;
+                        uint256 diff = ABDKMath64x64.mulu(term, onePercentFixedTokens - onePercentVariableTokens) / 100;
                         assert(diff <= margin);
                         orderReturn = margin - diff; 
                     }
                 }
             } else {
+                console.log("Variable");
                 if(settler == order.maker) {
+                    console.log("Maker");
                     if(onePercentVariableTokens >= onePercentFixedTokens) {
-                        uint256 diff = (onePercentVariableTokens - onePercentFixedTokens) / 100;
+                        uint256 diff = ABDKMath64x64.mulu(term, onePercentVariableTokens - onePercentFixedTokens) / 100;
                         orderReturn = margin + diff;
                     } else {
-                        uint256 diff = (onePercentFixedTokens - onePercentVariableTokens) / 100;
+                        uint256 diff = ABDKMath64x64.mulu(term, onePercentFixedTokens - onePercentVariableTokens) / 100;
                         assert(diff <= margin);
                         orderReturn = margin - diff; 
                     }
                 } else {
+                    console.log("Non-maker");
                     if(onePercentFixedTokens >= onePercentVariableTokens) {
-                        uint256 diff = (onePercentFixedTokens - onePercentVariableTokens) / 100;
+                        uint256 diff = ABDKMath64x64.mulu(term, onePercentFixedTokens - onePercentVariableTokens) / 100;
                         orderReturn = margin + diff;
                     } else {
-                        uint256 diff = (onePercentVariableTokens - onePercentFixedTokens) / 100;
+                        uint256 diff = ABDKMath64x64.mulu(term, onePercentVariableTokens - onePercentFixedTokens) / 100;
                         assert(diff <= margin);
                         orderReturn = margin - diff; 
                     }
                 }
             }
         }
+        console.log("Order Return: %s", orderReturn);
         _resetParticipant(orderHash, settler);
         // Transfer orderReturn underlying tokens to the settler
         _makeCall(
             order.underlyingAsset,
-            abi.encodePacked(
-                IERC20.transferFrom.selector,
-                address(this),
+            abi.encodeWithSelector(
+                IERC20.transfer.selector,
                 settler,
                 orderReturn
             )

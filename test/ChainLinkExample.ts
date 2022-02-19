@@ -129,9 +129,9 @@ describe('ChainLinkExample', async function () {
 
     it('eth -> dai chainlink+eps order', async function () {
         // chainlink rate is 1 eth = 4000 dai
-        const startTimestamp = (await ethers.provider.getBlock("latest")).timestamp - 8640000;
+        const startTimestamp = (await ethers.provider.getBlock("latest")).timestamp - 31536000;
         console.log(startTimestamp);
-        const endTimestamp = startTimestamp + 31536000;
+        const endTimestamp = startTimestamp + 3153600;
         const order = buildOrder(
             "1", dai.address, dai.address, "400", "100",
             cutLastArg(buildSinglePriceGetter(swap, oracle, false, '990000000')), // maker offset is 0.99
@@ -148,7 +148,7 @@ describe('ChainLinkExample', async function () {
         // const margin = await swap.getMarginReq(order, orderHash, _);
         console.log(await dai.balanceOf(_));
         console.log(await dai.balanceOf(swap.address));
-        await swapWallet.liquidate(order, _);
+        await swap.settleOrder(order, _);
         console.log(await dai.balanceOf(_));
         console.log(await dai.balanceOf(swap.address));
         // console.log(margin);

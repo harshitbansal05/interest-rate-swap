@@ -91,6 +91,9 @@ abstract contract OrderMixin is
     bytes32 private _jobId = "86b489ec4d84439c96181a8df7b22223";
     uint256 private _fee = 1 * 10 ** 18;
     bool private _unlocked = true;
+    int128 public liquidatorMargin = 0x00000000000000003333333333333333;
+    int128 public oppositePartyMargin = 0x00000000000000006666666666666666;
+    int128 public oppositePartyMarginNoLiquidator = 0x000000000000008000000000000000;
 
     bytes32 constant public LIMIT_ORDER_TYPEHASH = keccak256(
         "Order(uint256 salt,address asset,address underlyingAsset,address maker,address receiver,address allowedSender,uint256 fixedTokens,uint256 variableTokens,bool isFixedTaker,uint256 beginTimestamp,uint256 endTimestamp,int128 t,bytes makerAssetData,bytes takerAssetData,bytes getFixedTokens,bytes getVariableTokens,bytes predicate,bytes permit,bytes interaction)"
@@ -135,6 +138,18 @@ abstract contract OrderMixin is
 
     function setAssetUpperBoundMul(address asset, int128 upperBoundMul) external onlyOwner {
         assetUpperBoundMul[asset] = upperBoundMul;
+    }
+
+    function setLiquidatorMargin(int128 _liquidatorMargin) external onlyOwner {
+        liquidatorMargin = _liquidatorMargin;
+    }
+
+    function setOppositePartyMargin(int128 _oppositePartyMargin) external onlyOwner {
+        oppositePartyMargin = _oppositePartyMargin;
+    }
+
+    function setOppositePartyMarginNoLiquidator(int128 _oppositePartyMarginNoLiquidator) external onlyOwner {
+        oppositePartyMarginNoLiquidator = _oppositePartyMarginNoLiquidator;
     }
 
     constructor() {
@@ -552,30 +567,46 @@ abstract contract OrderMixin is
         orderParticipantVariableTokens[orderHash][order.maker] -= variableTokens;
     }
 
-    function liquidate(Order memory order, address defaulter) external {
+    function addMargin(Order memory order, address participant, uint256 amount) public {
+
+    }
+
+    function liquidate(Order memory order, address defaulter) external lock {
         // solhint-disable-next-line
         require(block.timestamp <= order.endTimestamp, "LOP: Order matured");
         bytes32 orderHash = hashOrder(order);
         require(!isOrderDefaulted[orderHash], "LOP: Order is defaulted");
 
-        uint256 fixedTokens = orderParticipantFixedTokens[orderHash][defaulter];
-        uint256 variableTokens = orderParticipantVariableTokens[orderHash][defaulter];
-        uint256 margin = orderParticipantMargin[orderHash][defaulter];
+        uint256 fixedTokens = 40000; // orderParticipantFixedTokens[orderHash][defaulter];
+        uint256 variableTokens = 1000000; // orderParticipantVariableTokens[orderHash][defaulter];
+        uint256 margin = 50000; // orderParticipantMargin[orderHash][defaulter];
         require(margin != 0, "LOP: Margin cannot be 0");
         uint256 reqMargin = getMarginReq(order, orderHash, defaulter);
         require(margin < reqMargin, "LOP: Margin is sufficient");
 
-        uint256 liquidatorFee;
+        uint256 liquidatorFee = 0;
+        if(defaulter != msg.sender) {
+            liquidatorFee = ABDKMath64x64.mulu(liquidatorMargin, margin);
+        }
         uint256 leftMargin = margin - liquidatorFee;
         uint256 oppositePartyReward;
+        if(defaulter != msg.sender) {
+            oppositePartyReward = ABDKMath64x64.mulu(oppositePartyMargin, leftMargin);
+        } else {
+            oppositePartyReward = ABDKMath64x64.mulu(oppositePartyMarginNoLiquidator, leftMargin);
+        }
         uint256 defaulterReturn = 0;
         if(leftMargin > oppositePartyReward) {
             defaulterReturn = leftMargin - oppositePartyReward;
-        } else {
-            oppositePartyReward = leftMargin;
         }
+
+        console.log("Liquidation returns:");
+        console.log(liquidatorFee);
+        console.log(oppositePartyReward);
+        console.log(defaulterReturn);
+
         if(defaulter == order.maker) {
-            _defaultOrder(order, orderHash, leftMargin - defaulterReturn);
+            _defaultOrder(order, orderHash, oppositePartyReward);
         } else {
             _resetDefaulter(orderHash, defaulter);
             _decreaseMakerFixedTokens(order, orderHash, fixedTokens);
@@ -586,39 +617,38 @@ abstract contract OrderMixin is
             address maker = order.maker;
 
             // Transfer funds to liquidator, order maker, defaulter
-            _makeCall(
-                underlyingAsset,
-                abi.encodePacked(
-                    IERC20.transferFrom.selector,
-                    address(this),
-                    msg.sender,
-                    liquidatorFee
-                )
-            );
-            if(defaulter != maker) {
+            if(liquidatorFee > 0) {
                 _makeCall(
                     underlyingAsset,
-                    abi.encodePacked(
-                        IERC20.transferFrom.selector,
-                        address(this),
+                    abi.encodeWithSelector(
+                        IERC20.transfer.selector,
+                        msg.sender,
+                        liquidatorFee
+                    )
+                );
+            }
+            if(defaulter != maker && oppositePartyReward > 0) {
+                _makeCall(
+                    underlyingAsset,
+                    abi.encodeWithSelector(
+                        IERC20.transfer.selector,
                         maker,
-                        leftMargin - defaulterReturn
+                        oppositePartyReward
                     )
                 );
             }
             if(defaulterReturn > 0) {
                 _makeCall(
                     underlyingAsset,
-                    abi.encodePacked(
-                        IERC20.transferFrom.selector,
-                        address(this),
+                    abi.encodeWithSelector(
+                        IERC20.transfer.selector,
                         defaulter,
                         defaulterReturn
                     )
                 );
             }
         }
-    } 
+    }
 
     function getCIRModelParams(address asset, int128 t, int128 ewmaAPY) public view returns(int128 k, int128 lambda, int128 ct) {
         int128 beta = assetBeta[asset];

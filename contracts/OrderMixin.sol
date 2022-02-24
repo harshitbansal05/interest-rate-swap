@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.11;
+pragma solidity 0.8.11;
 
 import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/utils/cryptography/draft-EIP712.sol";
@@ -79,8 +79,8 @@ abstract contract OrderMixin is
         int128 t;               // Fixed Point Q64.64 term of the order in years
         bytes makerAssetData;
         bytes takerAssetData;
-        bytes getFixedTokens;    // this.staticcall(abi.encodePacked(bytes, swapTakerAmount)) => (swapMakerAmount)
-        bytes getVariableTokens; // this.staticcall(abi.encodePacked(bytes, swapMakerAmount)) => (swapTakerAmount)
+        bytes getMakerAmount;    // this.staticcall(abi.encodePacked(bytes, swapTakerAmount)) => (swapMakerAmount)
+        bytes getTakerAmount;    // this.staticcall(abi.encodePacked(bytes, swapMakerAmount)) => (swapTakerAmount)
         bytes predicate;         // this.staticcall(bytes) => (bool)
         bytes permit;            // On first fill: permit.1.call(abi.encodePacked(permit.selector, permit.2))
         bytes interaction;
@@ -96,7 +96,7 @@ abstract contract OrderMixin is
     int128 public oppositePartyMarginNoLiquidator = 0x000000000000008000000000000000;
 
     bytes32 constant public LIMIT_ORDER_TYPEHASH = keccak256(
-        "Order(uint256 salt,address asset,address underlyingAsset,address maker,address receiver,address allowedSender,uint256 fixedTokens,uint256 variableTokens,bool isFixedTaker,uint256 beginTimestamp,uint256 endTimestamp,int128 t,bytes makerAssetData,bytes takerAssetData,bytes getFixedTokens,bytes getVariableTokens,bytes predicate,bytes permit,bytes interaction)"
+        "Order(uint256 salt,address asset,address underlyingAsset,address maker,address receiver,address allowedSender,uint256 fixedTokens,uint256 variableTokens,bool isFixedTaker,uint256 beginTimestamp,uint256 endTimestamp,int128 t,bytes makerAssetData,bytes takerAssetData,bytes getMakerAmount,bytes getTakerAmount,bytes predicate,bytes permit,bytes interaction)"
     );
     int128 constant private _LOG2E = 0x000000000000000171547652B83A2E3E;
     int128 constant private _ONEBYTWO = 0x00000000000000008000000000000000;
@@ -229,7 +229,6 @@ abstract contract OrderMixin is
         address asset;
         address underlyingAsset;
         bool ft;
-        bytes interaction;
     }
 
     /// @notice Fills an order. If one doesn't exist (first fill) it will be created using order.makerAssetData
@@ -265,13 +264,12 @@ abstract contract OrderMixin is
         uint256 fixedTokens,
         uint256 variableTokens,
         uint256 thresholdTokens,
-        address target,
         bytes calldata permit
     ) external returns(uint256 /* actualMakingAmount */, uint256 /* actualTakingAmount */) {
         require(permit.length >= 20, "LOP: permit length too low");
         (address token, bytes calldata permitData) = permit.decodeTargetAndData();
         _permit(token, permitData);
-        return fillOrderTo(order, signature, fixedTokens, variableTokens, thresholdTokens, target);
+        return fillOrderTo(order, signature, fixedTokens, variableTokens, thresholdTokens);
     }
 
     /// @notice Same as `fillOrder` but allows to specify funds destination instead of `msg.sender`
@@ -280,16 +278,13 @@ abstract contract OrderMixin is
     /// @param fixedTokens Fixed Tokens
     /// @param variableTokens Variable Tokens
     /// @param thresholdTokens Specifies maximum allowed takingAmount when takingAmount is zero, otherwise specifies minimum allowed makingAmount
-    /// @param target Address that will receive swap funds
     function fillOrderTo(
         Order memory order,
         bytes calldata signature,
         uint256 fixedTokens,
         uint256 variableTokens,
-        uint256 thresholdTokens,
-        address target
+        uint256 thresholdTokens
     ) public lock returns(uint256 /* actualMakingAmount */, uint256 /* actualTakingAmount */) {
-        require(target != address(0), "LOP: zero target is forbidden");
         require(msg.sender != order.maker, "LOP: same maker and taker");
 
         // solhint-disable-next-line
@@ -303,7 +298,6 @@ abstract contract OrderMixin is
             asset: order.asset,
             underlyingAsset: order.underlyingAsset,
             ft: order.isFixedTaker,
-            interaction: order.interaction
         });
 
         {   // Stack too deep
@@ -338,39 +332,50 @@ abstract contract OrderMixin is
                 revert("LOP: only one amount should be 0");
             }
             if (fixedTokens == 0) {
+                console.log("Fixed = 0");
                 uint256 requestedVariableTokens = variableTokens;
                 if(order.isFixedTaker) {
+                    console.log("Fixed taker");
                     if(variableTokens > remainingTokens) {
                         variableTokens = remainingTokens;
                     }
-                    fixedTokens = _callGetter(order.getFixedTokens, order.variableTokens, order.fixedTokens, variableTokens);
+                    fixedTokens = _callGetter(order.getMakerAmount, order.variableTokens, order.fixedTokens, variableTokens);
                     require(fixedTokens * requestedVariableTokens <= thresholdTokens * variableTokens, "LOP: Tokens less than threshold");
                 } else {
-                    fixedTokens = _callGetter(order.getFixedTokens, order.variableTokens, order.fixedTokens, variableTokens);
+                    console.log("Variable taker");
+                    fixedTokens = _callGetter(order.getTakerAmount, order.variableTokens, order.fixedTokens, variableTokens);
                     if(fixedTokens > remainingTokens) {
                         fixedTokens = remainingTokens;
-                        variableTokens = _callGetter(order.getVariableTokens, order.fixedTokens, order.variableTokens, fixedTokens);
+                        variableTokens = _callGetter(order.getMakerAmount, order.fixedTokens, order.variableTokens, fixedTokens);
                     }
                     require(fixedTokens * requestedVariableTokens >= thresholdTokens * variableTokens, "LOP: Tokens less than threshold");
                 }
             } else {
+                console.log("Variable = 0");
                 uint256 requestedFixedTokens = fixedTokens;
                 if(order.isFixedTaker) {
-                    variableTokens = _callGetter(order.getVariableTokens, order.fixedTokens, order.variableTokens, fixedTokens);
+                    console.log("Fixed taker");
+                    variableTokens = _callGetter(order.getTakerAmount, order.fixedTokens, order.variableTokens, fixedTokens);
+                    console.log(variableTokens);
+                    console.log(remainingTokens);
                     if(variableTokens > remainingTokens) {
+                        console.log("K");
                         variableTokens = remainingTokens;
-                        fixedTokens = _callGetter(order.getFixedTokens, order.variableTokens, order.fixedTokens, variableTokens);
+                        fixedTokens = _callGetter(order.getMakerAmount, order.variableTokens, order.fixedTokens, variableTokens);
                     }
                     require(variableTokens * requestedFixedTokens >= thresholdTokens * fixedTokens, "LOP: Tokens less than threshold");
                 } else {
+                    console.log("Variable taker");
                     if(fixedTokens > remainingTokens) {
                         fixedTokens = remainingTokens;
                     }
-                    variableTokens = _callGetter(order.getVariableTokens, order.fixedTokens, order.variableTokens, fixedTokens);
+                    variableTokens = _callGetter(order.getMakerAmount, order.fixedTokens, order.variableTokens, fixedTokens);
                     require(variableTokens * requestedFixedTokens <= thresholdTokens * fixedTokens, "LOP: Tokens less than threshold");
                 }
             }
-
+            console.log("Fixed and variable tokens:");
+            console.log(fixedTokens);
+            console.log(variableTokens);
             require(fixedTokens > 0 && variableTokens > 0, "LOP: can't swap 0 amount");
 
             // Update remaining amount in storage
@@ -396,42 +401,35 @@ abstract contract OrderMixin is
             // Calculate margin requirements for order maker and taker
             uint256 initialMarginMaker = getInitialMarginReq(order, orderHash, order.maker);
             uint256 initialMarginTaker = getInitialMarginReq(order, orderHash, msg.sender);
-            uint256 balance0Before = _balance(params.underlyingAsset);
+            console.log("Maker and taker margins:");
+            console.log(initialMarginMaker);
+            console.log(initialMarginTaker);
+
+            uint256 balanceBefore = _balance(params.underlyingAsset);
             // Taker => This
             _makeCall(
                 params.underlyingAsset,
                 abi.encodePacked(
                     IERC20.transferFrom.selector,
                     uint256(uint160(msg.sender)),
-                    address(this),
+                    uint256(uint160(address(this))),
                     initialMarginTaker
                 )
             );
-            require(balance0Before + initialMarginTaker <= _balance(params.underlyingAsset), "LOP: Margin not enough");
+            require(balanceBefore + initialMarginTaker <= _balance(params.underlyingAsset), "LOP: Margin not enough");
 
-            bool ft = params.ft;
-            bytes memory interaction = params.interaction;
-            // Maker can handle funds interactively
-            if (interaction.length >= 20) {
-                // proceed only if interaction length is enough to store address
-                (address interactionTarget, bytes memory interactionData) = interaction.decodeTargetAndCalldata();
-                InteractiveNotificationReceiver(interactionTarget).notifyFillOrder(
-                    msg.sender, params.asset, params.underlyingAsset, ft, 0, 0, interactionData
-                );
-            }
-
-            balance0Before = _balance(params.underlyingAsset);
+            balanceBefore = _balance(params.underlyingAsset);
             // Maker => This
             _makeCall(
                 params.underlyingAsset,
                 abi.encodePacked(
                     IERC20.transferFrom.selector,
                     uint256(uint160(params.maker)),
-                    address(this),
+                    uint256(uint160(address(this))),
                     initialMarginMaker
                 )
             );
-            require(balance0Before + initialMarginMaker <= _balance(params.underlyingAsset), "LOP: Margin not enough");
+            require(balanceBefore + initialMarginMaker <= _balance(params.underlyingAsset), "LOP: Margin not enough");
         }
         return (fixedTokens, variableTokens);
     }
@@ -455,8 +453,8 @@ abstract contract OrderMixin is
                     staticOrder,
                     keccak256(order.makerAssetData),
                     keccak256(order.takerAssetData),
-                    keccak256(order.getFixedTokens),
-                    keccak256(order.getVariableTokens),
+                    keccak256(order.getMakerAmount),
+                    keccak256(order.getTakerAmount),
                     keccak256(order.predicate),
                     keccak256(order.permit),
                     keccak256(order.interaction)
@@ -577,8 +575,26 @@ abstract contract OrderMixin is
         orderParticipantVariableTokens[orderHash][order.maker] -= variableTokens;
     }
 
-    function addMargin(Order memory order, address participant, uint256 amount) public {
-
+    function addMargin(Order memory order, address participant, uint256 amount) external {
+        require(amount > 0, "LOP: zero amount");
+        // solhint-disable-next-line
+        require(block.timestamp <= order.endTimestamp, "LOP: Order matured");
+        bytes32 orderHash = hashOrder(order);
+        require(!isOrderDefaulted[orderHash], "LOP: Order is defaulted");
+        require(orderParticipantMargin[orderHash][participant] > 0, "LOP: No margin provided");
+        orderParticipantMargin[orderHash][participant] += amount;
+        
+        uint256 balanceBefore = _balance(order.underlyingAsset);
+        _makeCall(
+            order.underlyingAsset,
+            abi.encodePacked(
+                IERC20.transferFrom.selector,
+                uint256(uint160(msg.sender)),
+                uint256(uint160(address(this))),
+                amount
+            )
+        );
+        require(balanceBefore + amount <= _balance(order.underlyingAsset), "LOP: Margin not enough");
     }
 
     function liquidate(Order memory order, address defaulter) external lock {
@@ -703,7 +719,7 @@ abstract contract OrderMixin is
         bytes32 orderHash,
         address participant
     ) public view returns(uint256) {
-        return getMarginReq(order, orderHash, participant);
+        return getMarginReqWithMuls(order, orderHash, participant, 1 << 64, 1 << 64);
     }
 
     function getMarginReq(
@@ -711,6 +727,16 @@ abstract contract OrderMixin is
         bytes32 orderHash,
         address participant
     ) public view returns(uint256) {
+        return getMarginReqWithMuls(order, orderHash, participant, 1 << 64, 1 << 64);
+    }
+
+    function getMarginReqWithMuls(
+        Order memory order,
+        bytes32 orderHash,
+        address participant,
+        int128 tl,
+        int128 tu
+    ) private view returns(uint256) {
         require(order.endTimestamp >= block.timestamp, "LOP: Order matured"); // solhint-disable-line
         require(!isOrderDefaulted[orderHash], "LOP: Order defaulted");
         int128 apyLower;
@@ -749,10 +775,10 @@ abstract contract OrderMixin is
             console.log(uint128(apyUpper));
         }
         
-        uint256 fixedTokens = 40000; // orderParticipantFixedTokens[orderHash][participant];
-        uint256 variableTokens = 1000000; // orderParticipantVariableTokens[orderHash][participant];
+        uint256 fixedTokens = orderParticipantFixedTokens[orderHash][participant];
+        uint256 variableTokens = orderParticipantVariableTokens[orderHash][participant];
         uint256 marginReq = 0;
-        uint256 minMargin = 0;
+        uint256 minMargin = 100;
         uint256 positiveMargin;
         uint256 negativeMargin;
         if(order.isFixedTaker) {
@@ -799,7 +825,7 @@ abstract contract OrderMixin is
         uint256 /* startTimestamp */, 
         uint256 /* endTimestamp */
     )  public pure returns(int128, int128) {
-        int128 apy = 4 * (1 << 64);
+        int128 apy = 6 * (1 << 64);
         apy = ABDKMath64x64.div(apy, 100 * (1 << 64));
         return (apy, apy);
     }
@@ -818,7 +844,7 @@ abstract contract OrderMixin is
     function _balance(address token) private view returns (uint256) {
         bytes memory result = token.functionStaticCall(abi.encodeWithSelector(IERC20.balanceOf.selector, address(this)));
         require(result.length == 32, "LOP: invalid call result");
-        return abi.decode(result, (uint256));
+        return result.decodeUint256();
     }
 
     function _makeCall(address asset, bytes memory assetData) private {

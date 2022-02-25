@@ -8,17 +8,26 @@ import "@nomiclabs/hardhat-solhint";
 import "@typechain/hardhat";
 
 import "hardhat-gas-reporter";
+import "hardhat-deploy";
 import "solidity-coverage";
 
 dotenv.config();
 
 const config: HardhatUserConfig = {
-    solidity: "0.8.11",
+    solidity: {
+        version: "0.8.11",
+        settings: {
+            optimizer: {
+                enabled: true,
+                runs: 1000000,
+            },
+        },
+    },
     networks: {
         hardhat: {
             gas: 12000000,
             blockGasLimit: 0x1fffffffffffff,
-            allowUnlimitedContractSize: true,
+            allowUnlimitedContractSize: false,
         },
     },
     gasReporter: {
@@ -27,6 +36,11 @@ const config: HardhatUserConfig = {
     },
     etherscan: {
         apiKey: process.env.MAINNET_ETHERSCAN_KEY,
+    },
+    namedAccounts: {
+        deployer: {
+            default: 0,
+        },
     },
 };
 

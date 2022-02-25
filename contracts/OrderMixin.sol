@@ -17,8 +17,6 @@ import "./libraries/ArgumentsDecoder.sol";
 import "./libraries/Permitable.sol";
 import "./mocks/OracleMock.sol";
 
-import "hardhat/console.sol";
-
 /// @title Regular Limit Order mixin
 abstract contract OrderMixin is
     EIP712,
@@ -414,10 +412,8 @@ abstract contract OrderMixin is
                 revert("LOP: only one amount should be 0");
             }
             if (fixedTokens == 0) {
-                console.log("Fixed = 0");
                 uint256 requestedVariableTokens = variableTokens;
                 if (order.isFixedTaker) {
-                    console.log("Fixed taker");
                     if (variableTokens > remainingTokens) {
                         variableTokens = remainingTokens;
                     }
@@ -433,7 +429,6 @@ abstract contract OrderMixin is
                         "LOP: Tokens less than threshold"
                     );
                 } else {
-                    console.log("Variable taker");
                     fixedTokens = _callGetter(
                         order.getTakerAmount,
                         order.variableTokens,
@@ -456,20 +451,15 @@ abstract contract OrderMixin is
                     );
                 }
             } else {
-                console.log("Variable = 0");
                 uint256 requestedFixedTokens = fixedTokens;
                 if (order.isFixedTaker) {
-                    console.log("Fixed taker");
                     variableTokens = _callGetter(
                         order.getTakerAmount,
                         order.fixedTokens,
                         order.variableTokens,
                         fixedTokens
                     );
-                    console.log(variableTokens);
-                    console.log(remainingTokens);
                     if (variableTokens > remainingTokens) {
-                        console.log("K");
                         variableTokens = remainingTokens;
                         fixedTokens = _callGetter(
                             order.getMakerAmount,
@@ -484,7 +474,6 @@ abstract contract OrderMixin is
                         "LOP: Tokens less than threshold"
                     );
                 } else {
-                    console.log("Variable taker");
                     if (fixedTokens > remainingTokens) {
                         fixedTokens = remainingTokens;
                     }
@@ -501,9 +490,6 @@ abstract contract OrderMixin is
                     );
                 }
             }
-            console.log("Fixed and variable tokens:");
-            console.log(fixedTokens);
-            console.log(variableTokens);
             require(
                 fixedTokens > 0 && variableTokens > 0,
                 "LOP: can't swap 0 amount"
@@ -546,10 +532,7 @@ abstract contract OrderMixin is
                 orderHash,
                 msg.sender
             );
-            console.log("Maker and taker margins:");
-            console.log(initialMarginMaker);
-            console.log(initialMarginTaker);
-
+            
             uint256 balanceBefore = _balance(params.underlyingAsset);
             // Taker => This
             _makeCall(
@@ -648,9 +631,6 @@ abstract contract OrderMixin is
             orderPeriodActualAPY,
             variableTokens
         ) * 100;
-        console.log("Fixed and variable tokens:");
-        console.log(onePercentFixedTokens);
-        console.log(onePercentVariableTokens);
         int128 term = order.t;
         uint256 orderReturn;
         if (isOrderDefaulted[orderHash]) {
@@ -659,9 +639,7 @@ abstract contract OrderMixin is
             orderReturn = margin + defaultedFundsShare;
         } else {
             if (order.isFixedTaker) {
-                console.log("Fixed");
                 if (settler == order.maker) {
-                    console.log("Maker");
                     if (onePercentFixedTokens >= onePercentVariableTokens) {
                         uint256 diff = ABDKMath64x64.mulu(
                             term,
@@ -677,7 +655,6 @@ abstract contract OrderMixin is
                         orderReturn = margin - diff;
                     }
                 } else {
-                    console.log("Non-maker");
                     if (onePercentVariableTokens >= onePercentFixedTokens) {
                         uint256 diff = ABDKMath64x64.mulu(
                             term,
@@ -694,9 +671,7 @@ abstract contract OrderMixin is
                     }
                 }
             } else {
-                console.log("Variable");
                 if (settler == order.maker) {
-                    console.log("Maker");
                     if (onePercentVariableTokens >= onePercentFixedTokens) {
                         uint256 diff = ABDKMath64x64.mulu(
                             term,
@@ -712,7 +687,6 @@ abstract contract OrderMixin is
                         orderReturn = margin - diff;
                     }
                 } else {
-                    console.log("Non-maker");
                     if (onePercentFixedTokens >= onePercentVariableTokens) {
                         uint256 diff = ABDKMath64x64.mulu(
                             term,
@@ -730,7 +704,6 @@ abstract contract OrderMixin is
                 }
             }
         }
-        console.log("Order Return: %s", orderReturn);
         _resetParticipant(orderHash, settler);
         // Transfer orderReturn underlying tokens to the settler
         _makeCall(
@@ -849,11 +822,6 @@ abstract contract OrderMixin is
             defaulterReturn = leftMargin - oppositePartyReward;
         }
 
-        console.log("Liquidation returns:");
-        console.log(liquidatorFee);
-        console.log(oppositePartyReward);
-        console.log(defaulterReturn);
-
         if (defaulter == order.maker) {
             _defaultOrder(order, orderHash, oppositePartyReward);
         } else {
@@ -914,11 +882,6 @@ abstract contract OrderMixin is
     {
         int128 beta = assetBeta[asset];
         int128 sigma = assetSigma[asset];
-        console.log("Alpha, Beta, Sigma:");
-        console.log(uint128(assetAlpha[asset]));
-        console.log(uint128(beta));
-        console.log(uint128(sigma));
-
         int128 exponent = ABDKMath64x64.exp2(
             ABDKMath64x64.mul(
                 ABDKMath64x64.mul(ABDKMath64x64.mul(-1 * (1 << 64), beta), t),
@@ -943,10 +906,6 @@ abstract contract OrderMixin is
             denominator,
             ABDKMath64x64.mul(4 * (1 << 64), beta)
         );
-        console.log("K, Lambda, Ct:");
-        console.log(uint128(k));
-        console.log(uint128(lambda));
-        console.log(uint128(ct));
     }
 
     function getAPYBounds(
@@ -983,9 +942,6 @@ abstract contract OrderMixin is
                 lowerBound := 0
             }
         }
-        console.log("Lower Bound, Upper Bound:");
-        console.log(uint128(lowerBound));
-        console.log(uint128(upperBound));
         return (lowerBound, upperBound);
     }
 
@@ -1041,13 +997,11 @@ abstract contract OrderMixin is
                 order.beginTimestamp,
                 block.timestamp // solhint-disable-line
             );
-            console.log("apy: %s", uint128(accruedAPY));
             int128 t = ABDKMath64x64.divu(
                 order.endTimestamp - block.timestamp,
                 order.endTimestamp - order.beginTimestamp
             ); // solhint-disable-line
-            console.log("t: %s", uint128(t));
-
+            
             (int128 k, int128 lambda, int128 ct) = getCIRModelParams(
                 asset,
                 t,
@@ -1080,9 +1034,6 @@ abstract contract OrderMixin is
             );
             apyLower = ABDKMath64x64.mul(apyLower, tl);
             apyUpper = ABDKMath64x64.mul(apyUpper, tu);
-            console.log("APY Lower, APY Upper:");
-            console.log(uint128(apyLower));
-            console.log(uint128(apyUpper));
         }
         uint256 positiveMargin;
         uint256 negativeMargin;
@@ -1094,9 +1045,7 @@ abstract contract OrderMixin is
                 participant
             ];
             if (order.isFixedTaker) {
-                console.log("Fixed");
                 if (participant == order.maker) {
-                    console.log("Maker");
                     positiveMargin = ABDKMath64x64.mulu(
                         ABDKMath64x64.mul(apyUpper, term),
                         variableTokens
@@ -1106,7 +1055,6 @@ abstract contract OrderMixin is
                         fixedTokens
                     );
                 } else {
-                    console.log("Non-maker");
                     positiveMargin = ABDKMath64x64.mulu(
                         ABDKMath64x64.mul(_ONEBYHUNDRED, term),
                         fixedTokens
@@ -1117,9 +1065,7 @@ abstract contract OrderMixin is
                     );
                 }
             } else {
-                console.log("Variable");
                 if (participant == order.maker) {
-                    console.log("Maker");
                     positiveMargin = ABDKMath64x64.mulu(
                         ABDKMath64x64.mul(_ONEBYHUNDRED, term),
                         fixedTokens
@@ -1129,7 +1075,6 @@ abstract contract OrderMixin is
                         variableTokens
                     );
                 } else {
-                    console.log("Non-maker");
                     positiveMargin = ABDKMath64x64.mulu(
                         ABDKMath64x64.mul(apyUpper, term),
                         variableTokens
@@ -1140,9 +1085,6 @@ abstract contract OrderMixin is
                     );
                 }
             }
-            console.log("Positive Margin, Negative Margin:");
-            console.log(positiveMargin);
-            console.log(negativeMargin);
         }
 
         uint256 marginReq = 0;
@@ -1178,9 +1120,6 @@ abstract contract OrderMixin is
         int256 answer = result.decodeInt256();
         apy = int128((answer << 128) >> 128);
         ewma = int128(answer >> 128);
-        console.log("Mock Oracle");
-        console.log(uint128(apy));
-        console.log(uint128(ewma));
     }
 
     function _balance(address token) private view returns (uint256) {

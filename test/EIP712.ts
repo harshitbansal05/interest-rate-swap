@@ -15,16 +15,24 @@ describe("LimitOrderProtocol", function () {
 
     beforeEach(async function () {
         const TokenMockFactory = await ethers.getContractFactory("TokenMock");
-        const LimitOrderProtocolFactory = await ethers.getContractFactory("LimitOrderProtocol");
-        const OracleMockFactory = await ethers.getContractFactory("AggregatorMock");
+        const LimitOrderProtocolFactory = await ethers.getContractFactory(
+            "LimitOrderProtocol"
+        );
+        const OracleMockFactory = await ethers.getContractFactory(
+            "AggregatorMock"
+        );
 
         dai = (await TokenMockFactory.deploy("DAI", "DAI")) as TokenMock;
         dai = await dai.deployed();
 
-        oracle = (await OracleMockFactory.deploy("737869762948382064")) as OracleMock;
+        oracle = (await OracleMockFactory.deploy(
+            "737869762948382064"
+        )) as OracleMock;
         oracle = await oracle.deployed();
 
-        swap = (await LimitOrderProtocolFactory.deploy(oracle.address)) as LimitOrderProtocol;
+        swap = (await LimitOrderProtocolFactory.deploy(
+            oracle.address
+        )) as LimitOrderProtocol;
         swap = await swap.deployed();
 
         // We get the chain id from the contract because Ganache (used for coverage) does not return the same chain id
@@ -34,10 +42,8 @@ describe("LimitOrderProtocol", function () {
     });
 
     it("domain separator", async function () {
-        expect(
-            await swap.DOMAIN_SEPARATOR(),
-        ).to.equal(
-            domainSeparator(name, version, chainId, swap.address),
+        expect(await swap.DOMAIN_SEPARATOR()).to.equal(
+            domainSeparator(name, version, chainId, swap.address)
         );
     });
 });

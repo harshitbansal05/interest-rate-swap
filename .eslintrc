@@ -1,0 +1,36 @@
+{
+    "extends": ["standard", "plugin:promise/recommended", "prettier"],
+    "plugins": ["promise", "@typescript-eslint"],
+    "parser": "@typescript-eslint/parser",
+    "env": {
+        "browser": true,
+        "node": true,
+        "mocha": true,
+        "jest": true,
+        "es2021": true
+    },
+    "globals": {
+        "artifacts": false,
+        "contract": false,
+        "assert": false,
+        "web3": false
+    },
+    "rules": {
+        // Strict mode
+        "strict": [2, "global"],
+
+        // Code style
+        "no-use-before-define": 0,
+        "no-unused-expressions": "off",
+        "eqeqeq": [2, "smart"],
+        "dot-notation": [2, { "allowKeywords": true, "allowPattern": "" }],
+        "no-redeclare": [2, { "builtinGlobals": true }],
+        "camelcase": [2, { "properties": "always" }],
+        "no-dupe-args": 2,
+        "no-dupe-keys": 2,
+        "no-debugger": 0,
+        "no-undef": 2,
+        "promise/avoid-new": 0,
+        "promise/always-return": 0
+    }
+}

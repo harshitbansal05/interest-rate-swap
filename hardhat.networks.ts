@@ -56,6 +56,12 @@ register(
     process.env.ROPSTEN_RPC_URL,
     process.env.ROPSTEN_PRIVATE_KEY
 );
+register(
+    "rinkeby",
+    4,
+    process.env.RINKEBY_RPC_URL,
+    process.env.RINKEBY_PRIVATE_KEY
+);
 register("xdai", 100, process.env.XDAI_RPC_URL, process.env.XDAI_PRIVATE_KEY);
 register("avax", 43114, process.env.AVAX_RPC_URL, process.env.AVAX_PRIVATE_KEY);
 

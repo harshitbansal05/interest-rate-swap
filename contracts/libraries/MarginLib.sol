@@ -5,6 +5,8 @@
  */
 pragma solidity ^0.8.0;
 
+import "../mocks/OracleMock.sol";
+
 /**
  * Smart contract library of mathematical functions operating with signed
  * 64.64-bit fixed point numbers.  Signed 64.64-bit fixed point number is
@@ -13,7 +15,7 @@ pragma solidity ^0.8.0;
  * need to store it, thus in Solidity signed 64.64-bit fixed point numbers are
  * represented by int128 type holding only the numerator.
  */
-library ABDKMath64x64 {
+library MarginLib {
     /*
      * Minimum value signed 64.64-bit fixed point number may have.
      */
@@ -24,6 +26,42 @@ library ABDKMath64x64 {
      */
     int128 private constant _MAX64X64 = 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
 
+    /*
+     * Log e with base 2 in signed 64.64-bit fixed point format.
+     */
+    int128 private constant _LOG2E = 0x000000000000000171547652B83A2E3E;
+
+    /*
+     * 1 / 2 in signed 64.64-bit fixed point format.
+     */
+    int128 private constant _ONEBYTWO = 0x00000000000000008000000000000000;
+
+    /*
+     * 1 / 100 in signed 64.64-bit fixed point format.
+     */
+    int128 private constant _ONEBYHUNDRED = 0x0000000000000000028F5C28F5C28F5C;
+
+    struct AssetInfo {
+        address asset;
+        address underlyingAsset;
+        int128 alpha;
+        int128 beta;
+        int128 sigma;
+        int128 lowerBoundMul;
+        int128 upperBoundMul;
+    }
+
+    struct OrderInfo {
+        bytes32 orderHash;
+        uint256 beginTimestamp;
+        uint256 endTimestamp;
+        bool isOrderDefaulted;
+        int128 term;
+        uint256 fixedTokens;
+        uint256 variableTokens;
+        bool forFixedTaker;
+    }
+
     /**
      * Calculate x + y.  Revert on overflow.
      *
@@ -31,7 +69,7 @@ library ABDKMath64x64 {
      * @param y signed 64.64-bit fixed point number
      * @return signed 64.64-bit fixed point number
      */
-    function add(int128 x, int128 y) internal pure returns (int128) {
+    function _add(int128 x, int128 y) private pure returns (int128) {
         unchecked {
             int256 result = int256(x) + y;
             require(
@@ -49,7 +87,7 @@ library ABDKMath64x64 {
      * @param y signed 64.64-bit fixed point number
      * @return signed 64.64-bit fixed point number
      */
-    function sub(int128 x, int128 y) internal pure returns (int128) {
+    function _sub(int128 x, int128 y) private pure returns (int128) {
         unchecked {
             int256 result = int256(x) - y;
             require(
@@ -67,7 +105,7 @@ library ABDKMath64x64 {
      * @param y signed 64.64-bit fixed point number
      * @return signed 64.64-bit fixed point number
      */
-    function mul(int128 x, int128 y) internal pure returns (int128) {
+    function _mul(int128 x, int128 y) private pure returns (int128) {
         unchecked {
             int256 result = (int256(x) * y) >> 64;
             require(
@@ -120,7 +158,7 @@ library ABDKMath64x64 {
      * @param y signed 64.64-bit fixed point number
      * @return signed 64.64-bit fixed point number
      */
-    function div(int128 x, int128 y) internal pure returns (int128) {
+    function _div(int128 x, int128 y) private pure returns (int128) {
         unchecked {
             require(y != 0, "LOP: Zero divisor");
             int256 result = (int256(x) << 64) / y;
@@ -140,7 +178,7 @@ library ABDKMath64x64 {
      * @param y unsigned 256-bit integer number
      * @return signed 64.64-bit fixed point number
      */
-    function divu(uint256 x, uint256 y) internal pure returns (int128) {
+    function _divu(uint256 x, uint256 y) private pure returns (int128) {
         unchecked {
             require(y != 0, "LOP: Zero divisor");
             uint128 result = _divuu(x, y);
@@ -155,7 +193,7 @@ library ABDKMath64x64 {
      * @param x signed 64.64-bit fixed point number
      * @return signed 64.64-bit fixed point number
      */
-    function log2(int128 x) internal pure returns (int128) {
+    function _log2(int128 x) private pure returns (int128) {
         unchecked {
             require(x > 0, "LOP: Negative");
 
@@ -206,7 +244,7 @@ library ABDKMath64x64 {
      * @param x signed 64.64-bit fixed point number
      * @return signed 64.64-bit fixed point number
      */
-    function exp2(int128 x) internal pure returns (int128) {
+    function _exp2(int128 x) private pure returns (int128) {
         unchecked {
             require(x < 0x400000000000000000, "LOP: Overflow"); // Overflow
 
@@ -419,6 +457,235 @@ library ABDKMath64x64 {
                 "LOP: Overflow"
             );
             return uint128(result);
+        }
+    }
+
+    function _getCIRModelParams(
+        AssetInfo memory assetInfo,
+        int128 t,
+        int128 ewmaAPY
+    )
+        private
+        pure
+        returns (
+            int128 k,
+            int128 lambda,
+            int128 ct
+        )
+    {
+        int128 beta = assetInfo.beta;
+        int128 sigma = assetInfo.sigma; 
+        int128 exponent = _exp2(
+            _mul(
+                _mul(_mul(-1 * (1 << 64), beta), t),
+                _LOG2E
+            )
+        );
+        int128 numerator = _mul(
+            _mul(_mul(4 * (1 << 64), beta), ewmaAPY),
+            exponent
+        );
+        int128 denominator = _mul(
+            _mul(sigma, sigma),
+            _sub(1 * (1 << 64), exponent)
+        );
+
+        k = _div(
+            _mul(4 * (1 << 64), assetInfo.alpha),
+            _mul(sigma, sigma)
+        );
+        lambda = _div(numerator, denominator);
+        ct = _div(
+            denominator,
+            _mul(4 * (1 << 64), beta)
+        );
+    }
+
+    function _getAPYBounds(
+        AssetInfo memory assetInfo,
+        int128 t,
+        int128 ewma
+    ) private pure returns (int128, int128) {
+        (int128 k, int128 lambda, int128 ct) = _getCIRModelParams(
+            assetInfo,
+            t,
+            ewma
+        );
+        int128 upperBoundMul = assetInfo.upperBoundMul;
+        int128 lowerBoundMul = assetInfo.lowerBoundMul;
+        int128 upperBound;
+        int128 lowerBound;
+        {
+            int128 sqrtTerm = _mul(
+                2 * (1 << 64),
+                _add(k, _mul(2 * (1 << 64), lambda))
+            );
+            int128 sqrtCal = _exp2(
+                _mul(_log2(sqrtTerm), _ONEBYTWO)
+            );
+            upperBound = _mul(
+                ct,
+                _add(
+                    _add(k, lambda),
+                    _mul(upperBoundMul, sqrtCal)
+                )
+            );
+            lowerBound = _mul(
+                ct,
+                _sub(
+                    _add(k, lambda),
+                    _mul(lowerBoundMul, sqrtCal)
+                )
+            );
+        }
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            if gt(0, lowerBound) {
+                lowerBound := 0
+            }
+        }
+        return (lowerBound, upperBound);
+    }
+
+    function getAverageAccruedAPYBetweenTimestamps(
+        OracleMock oracle,
+        address asset,
+        address underlyingAsset,
+        uint256 startTimestamp,
+        uint256 endTimestamp
+    ) public view returns (int128 apy, int128 ewma) {
+        int256 answer = oracle.getAverageAccruedAPYBetweenTimestamps(
+            asset,
+            underlyingAsset,
+            startTimestamp,
+            endTimestamp
+        );
+        apy = int128((answer << 128) >> 128);
+        ewma = int128(answer >> 128);
+    }
+
+    function getMarginReqWithMuls(
+        OracleMock oracle,
+        OrderInfo memory orderInfo,
+        AssetInfo memory assetInfo,
+        int128 tl,
+        int128 tu
+    ) public view returns (uint256) {
+        uint256 beginTimestamp = orderInfo.beginTimestamp;
+        uint256 endTimestamp = orderInfo.endTimestamp;
+        int128 apyLower;
+        int128 apyUpper;
+        int128 accruedAPY;
+        {
+            int128 ewma;
+            (accruedAPY, ewma) = getAverageAccruedAPYBetweenTimestamps(
+                oracle,
+                assetInfo.asset,
+                assetInfo.underlyingAsset,
+                beginTimestamp,
+                block.timestamp // solhint-disable-line
+            );
+            (apyLower, apyUpper) = _getAPYBounds(
+                assetInfo,
+                _divu(
+                    endTimestamp - block.timestamp, // solhint-disable-line
+                    endTimestamp - beginTimestamp
+                ),
+                ewma
+            );
+        }
+        {
+            int128 w1 = _divu(
+                block.timestamp - beginTimestamp, // solhint-disable-line
+                endTimestamp - beginTimestamp
+            ); 
+            int128 w2 = _divu(
+                endTimestamp - block.timestamp, // solhint-disable-line
+                endTimestamp - beginTimestamp
+            ); 
+            apyLower = _add(
+                _mul(w1, accruedAPY),
+                _mul(w2, apyLower)
+            );
+            apyUpper = _add(
+                _mul(w1, accruedAPY),
+                _mul(w2, apyUpper)
+            );
+            apyLower = _mul(apyLower, tl);
+            apyUpper = _mul(apyUpper, tu);
+        }
+        uint256 positiveMargin;
+        uint256 negativeMargin;
+        if (orderInfo.forFixedTaker) {
+            positiveMargin = mulu(
+                _mul(apyUpper, orderInfo.term),
+                orderInfo.variableTokens
+            );
+            negativeMargin = mulu(
+                _mul(_ONEBYHUNDRED, orderInfo.term),
+                orderInfo.fixedTokens
+            );
+        } else {
+            positiveMargin = mulu(
+                _mul(_ONEBYHUNDRED, orderInfo.term),
+                orderInfo.fixedTokens
+            );
+            negativeMargin = mulu(
+                _mul(apyLower, orderInfo.term),
+               orderInfo. variableTokens
+            );
+        }
+        uint256 marginReq = 0;
+        uint256 minMargin = 100;
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            if gt(positiveMargin, negativeMargin) {
+                marginReq := sub(positiveMargin, negativeMargin)
+            }
+            if gt(minMargin, marginReq) {
+                marginReq := minMargin
+            }
+        }
+        return marginReq;
+    }
+
+    function getReturnAfterMaturity(
+        uint256 onePercentFixedTokens,
+        uint256 onePercentVariableTokens,
+        uint256 margin,
+        bool forFixedTaker,
+        int128 term
+    ) public pure returns(uint256 orderReturn) {
+        if (forFixedTaker) {
+            if (onePercentFixedTokens >= onePercentVariableTokens) {
+                uint256 diff = mulu(
+                    term,
+                    onePercentFixedTokens - onePercentVariableTokens
+                ) / 100;
+                orderReturn = margin + diff;
+            } else {
+                uint256 diff = mulu(
+                    term,
+                    onePercentVariableTokens - onePercentFixedTokens
+                ) / 100;
+                assert(diff <= margin);
+                orderReturn = margin - diff;
+            }
+        } else {
+            if (onePercentVariableTokens >= onePercentFixedTokens) {
+                uint256 diff = mulu(
+                    term,
+                    onePercentVariableTokens - onePercentFixedTokens
+                ) / 100;
+                orderReturn = margin + diff;
+            } else {
+                uint256 diff = mulu(
+                    term,
+                    onePercentFixedTokens - onePercentVariableTokens
+                ) / 100;
+                assert(diff <= margin);
+                orderReturn = margin - diff;
+            }
         }
     }
 }

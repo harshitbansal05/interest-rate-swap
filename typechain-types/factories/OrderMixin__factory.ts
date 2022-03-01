@@ -2002,25 +2002,6 @@ const _abi = [
   {
     inputs: [
       {
-        internalType: "bytes32[]",
-        name: "orderHashes",
-        type: "bytes32[]",
-      },
-    ],
-    name: "remainingsRaw",
-    outputs: [
-      {
-        internalType: "uint256[]",
-        name: "",
-        type: "uint256[]",
-      },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [
-      {
         internalType: "address",
         name: "asset",
         type: "address",

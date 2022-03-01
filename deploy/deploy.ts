@@ -25,7 +25,14 @@ async function deploy({ getNamedAccounts, deployments }) {
 
     if ((await getChainId()) !== "31337") {
         await hre.run("verify:verify", {
+            address: lib.address,
+        });
+        await hre.run("verify:verify", {
             address: limitOrderProtocol.address,
+            constructorArguments: [oracle.address],
+            libraries: {
+                MarginLib: lib.address,
+            },
         });
     }
 }

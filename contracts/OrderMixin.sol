@@ -193,19 +193,6 @@ abstract contract OrderMixin is
         return _remaining[orderHash];
     }
 
-    /// @notice Same as `remainingRaw` but for multiple orders
-    function remainingsRaw(bytes32[] memory orderHashes)
-        external
-        view
-        returns (uint256[] memory)
-    {
-        uint256[] memory results = new uint256[](orderHashes.length);
-        for (uint256 i = 0; i < orderHashes.length; i++) {
-            results[i] = _remaining[orderHashes[i]];
-        }
-        return results;
-    }
-
     /**
      * @notice Calls every target with corresponding data. Then reverts with CALL_RESULTS_0101011 where zeroes and ones
      * denote failure or success of the corresponding call

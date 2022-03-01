@@ -128,7 +128,6 @@ export interface LimitOrderProtocolInterface extends utils.Interface {
     "owner()": FunctionFragment;
     "remaining(bytes32)": FunctionFragment;
     "remainingRaw(bytes32)": FunctionFragment;
-    "remainingsRaw(bytes32[])": FunctionFragment;
     "setAssetAlpha(address,int128)": FunctionFragment;
     "setAssetBeta(address,int128)": FunctionFragment;
     "setAssetLowerBoundMul(address,int128)": FunctionFragment;
@@ -316,10 +315,6 @@ export interface LimitOrderProtocolInterface extends utils.Interface {
     values: [BytesLike]
   ): string;
   encodeFunctionData(
-    functionFragment: "remainingsRaw",
-    values: [BytesLike[]]
-  ): string;
-  encodeFunctionData(
     functionFragment: "setAssetAlpha",
     values: [string, BigNumberish]
   ): string;
@@ -489,10 +484,6 @@ export interface LimitOrderProtocolInterface extends utils.Interface {
   decodeFunctionResult(functionFragment: "remaining", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "remainingRaw",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "remainingsRaw",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -829,11 +820,6 @@ export interface LimitOrderProtocol extends BaseContract {
       overrides?: CallOverrides
     ): Promise<[BigNumber]>;
 
-    remainingsRaw(
-      orderHashes: BytesLike[],
-      overrides?: CallOverrides
-    ): Promise<[BigNumber[]]>;
-
     setAssetAlpha(
       asset: string,
       alpha: BigNumberish,
@@ -1129,11 +1115,6 @@ export interface LimitOrderProtocol extends BaseContract {
     overrides?: CallOverrides
   ): Promise<BigNumber>;
 
-  remainingsRaw(
-    orderHashes: BytesLike[],
-    overrides?: CallOverrides
-  ): Promise<BigNumber[]>;
-
   setAssetAlpha(
     asset: string,
     alpha: BigNumberish,
@@ -1426,11 +1407,6 @@ export interface LimitOrderProtocol extends BaseContract {
       orderHash: BytesLike,
       overrides?: CallOverrides
     ): Promise<BigNumber>;
-
-    remainingsRaw(
-      orderHashes: BytesLike[],
-      overrides?: CallOverrides
-    ): Promise<BigNumber[]>;
 
     setAssetAlpha(
       asset: string,
@@ -1761,11 +1737,6 @@ export interface LimitOrderProtocol extends BaseContract {
       overrides?: CallOverrides
     ): Promise<BigNumber>;
 
-    remainingsRaw(
-      orderHashes: BytesLike[],
-      overrides?: CallOverrides
-    ): Promise<BigNumber>;
-
     setAssetAlpha(
       asset: string,
       alpha: BigNumberish,
@@ -2075,11 +2046,6 @@ export interface LimitOrderProtocol extends BaseContract {
 
     remainingRaw(
       orderHash: BytesLike,
-      overrides?: CallOverrides
-    ): Promise<PopulatedTransaction>;
-
-    remainingsRaw(
-      orderHashes: BytesLike[],
       overrides?: CallOverrides
     ): Promise<PopulatedTransaction>;
 

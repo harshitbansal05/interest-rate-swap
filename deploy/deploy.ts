@@ -6,9 +6,19 @@ async function deploy({ getNamedAccounts, deployments }) {
     console.log("Network id ", await getChainId());
     const { deploy } = deployments;
     const { deployer } = await getNamedAccounts();
+    const lib = await deploy("MarginLib", {
+        from: deployer,
+    });
+    const oracle = await deploy("OracleMock", {
+        from: deployer,
+        args: ["251084069415467230335650862098906040028272338785178107248"],
+    });
     const limitOrderProtocol = await deploy("LimitOrderProtocol", {
         from: deployer,
-        args: ["0x39521925DaF14B0d64452B8A1d14A850f1C75B34"],
+        args: [oracle.address],
+        libraries: {
+            MarginLib: lib.address,
+        },
     });
 
     console.log("LimitOrderProtocol deployed to:", limitOrderProtocol.address);

@@ -19,7 +19,7 @@ const config: HardhatUserConfig = {
         settings: {
             optimizer: {
                 enabled: true,
-                runs: 1000000,
+                runs: 1000,
             },
         },
     },
@@ -27,7 +27,7 @@ const config: HardhatUserConfig = {
         hardhat: {
             gas: 12000000,
             blockGasLimit: 0x1fffffffffffff,
-            allowUnlimitedContractSize: false,
+            allowUnlimitedContractSize: true,
         },
     },
     gasReporter: {

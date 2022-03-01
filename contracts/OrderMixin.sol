@@ -12,14 +12,13 @@ import "./helpers/ChainlinkCalculator.sol";
 import "./helpers/NonceManager.sol";
 import "./helpers/PredicateHelper.sol";
 import "./interfaces/InteractiveNotificationReceiver.sol";
-import "./libraries/ABDKMath64x64.sol";
+import "./libraries/MarginLib.sol";
 import "./libraries/ArgumentsDecoder.sol";
 import "./libraries/Permitable.sol";
 import "./mocks/OracleMock.sol";
 
-import "hardhat/console.sol";
-
 /// @title Regular Limit Order mixin
+// solhint-disable-next-line 
 abstract contract OrderMixin is
     EIP712,
     AmountCalculator,
@@ -85,7 +84,7 @@ abstract contract OrderMixin is
     }
 
     address public owner;
-    address private _oracle;
+    OracleMock private _oracle;
     bool private _unlocked = true;
     int128 public liquidatorMargin = 0x00000000000000003333333333333333;
     int128 public oppositePartyMargin = 0x00000000000000006666666666666666;
@@ -96,9 +95,6 @@ abstract contract OrderMixin is
         keccak256(
             "Order(uint256 salt,address asset,address underlyingAsset,address maker,address receiver,address allowedSender,uint256 fixedTokens,uint256 variableTokens,bool isFixedTaker,uint256 beginTimestamp,uint256 endTimestamp,int128 t,bytes makerAssetData,bytes takerAssetData,bytes getMakerAmount,bytes getTakerAmount,bytes predicate,bytes permit,bytes interaction)"
         );
-    int128 private constant _LOG2E = 0x000000000000000171547652B83A2E3E;
-    int128 private constant _ONEBYTWO = 0x00000000000000008000000000000000;
-    int128 private constant _ONEBYHUNDRED = 0x0000000000000000028F5C28F5C28F5C;
     uint256 private constant _ORDER_DOES_NOT_EXIST = 0;
     uint256 private constant _ORDER_FILLED = 1;
 
@@ -164,7 +160,7 @@ abstract contract OrderMixin is
         oppositePartyMarginNoLiquidator = _oppositePartyMarginNoLiquidator;
     }
 
-    constructor(address oracle) {
+    constructor(OracleMock oracle) {
         owner = msg.sender;
         _oracle = oracle;
     }
@@ -340,10 +336,8 @@ abstract contract OrderMixin is
         )
     {
         require(msg.sender != order.maker, "LOP: same maker and taker");
-
-        // solhint-disable-next-line
         require(
-            block.timestamp <= order.endTimestamp,
+            block.timestamp <= order.endTimestamp, // solhint-disable-line
             "LOP: Order already matured"
         );
         bytes32 orderHash = hashOrder(order);
@@ -414,10 +408,8 @@ abstract contract OrderMixin is
                 revert("LOP: only one amount should be 0");
             }
             if (fixedTokens == 0) {
-                console.log("Fixed = 0");
                 uint256 requestedVariableTokens = variableTokens;
                 if (order.isFixedTaker) {
-                    console.log("Fixed taker");
                     if (variableTokens > remainingTokens) {
                         variableTokens = remainingTokens;
                     }
@@ -433,7 +425,6 @@ abstract contract OrderMixin is
                         "LOP: Tokens less than threshold"
                     );
                 } else {
-                    console.log("Variable taker");
                     fixedTokens = _callGetter(
                         order.getTakerAmount,
                         order.variableTokens,
@@ -456,20 +447,15 @@ abstract contract OrderMixin is
                     );
                 }
             } else {
-                console.log("Variable = 0");
                 uint256 requestedFixedTokens = fixedTokens;
                 if (order.isFixedTaker) {
-                    console.log("Fixed taker");
                     variableTokens = _callGetter(
                         order.getTakerAmount,
                         order.fixedTokens,
                         order.variableTokens,
                         fixedTokens
                     );
-                    console.log(variableTokens);
-                    console.log(remainingTokens);
                     if (variableTokens > remainingTokens) {
-                        console.log("K");
                         variableTokens = remainingTokens;
                         fixedTokens = _callGetter(
                             order.getMakerAmount,
@@ -484,7 +470,6 @@ abstract contract OrderMixin is
                         "LOP: Tokens less than threshold"
                     );
                 } else {
-                    console.log("Variable taker");
                     if (fixedTokens > remainingTokens) {
                         fixedTokens = remainingTokens;
                     }
@@ -501,9 +486,6 @@ abstract contract OrderMixin is
                     );
                 }
             }
-            console.log("Fixed and variable tokens:");
-            console.log(fixedTokens);
-            console.log(variableTokens);
             require(
                 fixedTokens > 0 && variableTokens > 0,
                 "LOP: can't swap 0 amount"
@@ -546,10 +528,7 @@ abstract contract OrderMixin is
                 orderHash,
                 msg.sender
             );
-            console.log("Maker and taker margins:");
-            console.log(initialMarginMaker);
-            console.log(initialMarginTaker);
-
+            
             uint256 balanceBefore = _balance(params.underlyingAsset);
             // Taker => This
             _makeCall(
@@ -599,8 +578,8 @@ abstract contract OrderMixin is
 
     function hashOrder(Order memory order) public view returns (bytes32) {
         StaticOrder memory staticOrder;
+        // solhint-disable-next-line no-inline-assembly
         assembly {
-            // solhint-disable-line no-inline-assembly
             staticOrder := order
         }
         return
@@ -627,14 +606,13 @@ abstract contract OrderMixin is
         returns (uint256)
     {
         bytes32 orderHash = hashOrder(order);
-        // solhint-disable-next-line
         require(
-            block.timestamp > order.endTimestamp || isOrderDefaulted[orderHash],
+            block.timestamp > order.endTimestamp || isOrderDefaulted[orderHash], // solhint-disable-line
             "LOP: Order yet not matured"
         );
-        uint256 fixedTokens = 4000000; // orderParticipantFixedTokens[orderHash][settler];
-        uint256 variableTokens = 1000; // orderParticipantVariableTokens[orderHash][settler];
-        uint256 margin = 5000; // orderParticipantMargin[orderHash][settler];
+        uint256 fixedTokens = orderParticipantFixedTokens[orderHash][settler];
+        uint256 variableTokens = orderParticipantVariableTokens[orderHash][settler];
+        uint256 margin = orderParticipantMargin[orderHash][settler];
         require(margin > 0, "LOP: No margin provided");
         // Get actual APY over the order period
         (int128 orderPeriodActualAPY, ) = getAverageAccruedAPYBetweenTimestamps(
@@ -644,13 +622,10 @@ abstract contract OrderMixin is
             order.endTimestamp
         );
         uint256 onePercentFixedTokens = fixedTokens;
-        uint256 onePercentVariableTokens = ABDKMath64x64.mulu(
+        uint256 onePercentVariableTokens = MarginLib.mulu(
             orderPeriodActualAPY,
             variableTokens
         ) * 100;
-        console.log("Fixed and variable tokens:");
-        console.log(onePercentFixedTokens);
-        console.log(onePercentVariableTokens);
         int128 term = order.t;
         uint256 orderReturn;
         if (isOrderDefaulted[orderHash]) {
@@ -658,79 +633,17 @@ abstract contract OrderMixin is
                 _orderNumTakers[orderHash];
             orderReturn = margin + defaultedFundsShare;
         } else {
-            if (order.isFixedTaker) {
-                console.log("Fixed");
-                if (settler == order.maker) {
-                    console.log("Maker");
-                    if (onePercentFixedTokens >= onePercentVariableTokens) {
-                        uint256 diff = ABDKMath64x64.mulu(
-                            term,
-                            onePercentFixedTokens - onePercentVariableTokens
-                        ) / 100;
-                        orderReturn = margin + diff;
-                    } else {
-                        uint256 diff = ABDKMath64x64.mulu(
-                            term,
-                            onePercentVariableTokens - onePercentFixedTokens
-                        ) / 100;
-                        assert(diff <= margin);
-                        orderReturn = margin - diff;
-                    }
-                } else {
-                    console.log("Non-maker");
-                    if (onePercentVariableTokens >= onePercentFixedTokens) {
-                        uint256 diff = ABDKMath64x64.mulu(
-                            term,
-                            onePercentVariableTokens - onePercentFixedTokens
-                        ) / 100;
-                        orderReturn = margin + diff;
-                    } else {
-                        uint256 diff = ABDKMath64x64.mulu(
-                            term,
-                            onePercentFixedTokens - onePercentVariableTokens
-                        ) / 100;
-                        assert(diff <= margin);
-                        orderReturn = margin - diff;
-                    }
-                }
-            } else {
-                console.log("Variable");
-                if (settler == order.maker) {
-                    console.log("Maker");
-                    if (onePercentVariableTokens >= onePercentFixedTokens) {
-                        uint256 diff = ABDKMath64x64.mulu(
-                            term,
-                            onePercentVariableTokens - onePercentFixedTokens
-                        ) / 100;
-                        orderReturn = margin + diff;
-                    } else {
-                        uint256 diff = ABDKMath64x64.mulu(
-                            term,
-                            onePercentFixedTokens - onePercentVariableTokens
-                        ) / 100;
-                        assert(diff <= margin);
-                        orderReturn = margin - diff;
-                    }
-                } else {
-                    console.log("Non-maker");
-                    if (onePercentFixedTokens >= onePercentVariableTokens) {
-                        uint256 diff = ABDKMath64x64.mulu(
-                            term,
-                            onePercentFixedTokens - onePercentVariableTokens
-                        ) / 100;
-                        orderReturn = margin + diff;
-                    } else {
-                        uint256 diff = ABDKMath64x64.mulu(
-                            term,
-                            onePercentVariableTokens - onePercentFixedTokens
-                        ) / 100;
-                        assert(diff <= margin);
-                        orderReturn = margin - diff;
-                    }
-                }
-            }
+            bool forFixedTaker;
+            if(order.isFixedTaker && settler == order.maker) forFixedTaker = true;
+            if(!order.isFixedTaker && settler != order.maker) forFixedTaker = true;
+            orderReturn = MarginLib.getReturnAfterMaturity(
+                onePercentFixedTokens,
+                onePercentVariableTokens,
+                margin,
+                forFixedTaker,
+                term
+            );
         }
-        console.log("Order Return: %s", orderReturn);
         _resetParticipant(orderHash, settler);
         // Transfer orderReturn underlying tokens to the settler
         _makeCall(
@@ -820,26 +733,26 @@ abstract contract OrderMixin is
         bytes32 orderHash = hashOrder(order);
         require(!isOrderDefaulted[orderHash], "LOP: Order is defaulted");
 
-        uint256 fixedTokens = 40000; // orderParticipantFixedTokens[orderHash][defaulter];
-        uint256 variableTokens = 1000000; // orderParticipantVariableTokens[orderHash][defaulter];
-        uint256 margin = 50000; // orderParticipantMargin[orderHash][defaulter];
+        uint256 fixedTokens = orderParticipantFixedTokens[orderHash][defaulter];
+        uint256 variableTokens = orderParticipantVariableTokens[orderHash][defaulter];
+        uint256 margin = orderParticipantMargin[orderHash][defaulter];
         require(margin != 0, "LOP: Margin cannot be 0");
         uint256 reqMargin = getMarginReq(order, orderHash, defaulter);
         require(margin < reqMargin, "LOP: Margin is sufficient");
 
         uint256 liquidatorFee = 0;
         if (defaulter != msg.sender) {
-            liquidatorFee = ABDKMath64x64.mulu(liquidatorMargin, margin);
+            liquidatorFee = MarginLib.mulu(liquidatorMargin, margin);
         }
         uint256 leftMargin = margin - liquidatorFee;
         uint256 oppositePartyReward;
         if (defaulter != msg.sender) {
-            oppositePartyReward = ABDKMath64x64.mulu(
+            oppositePartyReward = MarginLib.mulu(
                 oppositePartyMargin,
                 leftMargin
             );
         } else {
-            oppositePartyReward = ABDKMath64x64.mulu(
+            oppositePartyReward = MarginLib.mulu(
                 oppositePartyMarginNoLiquidator,
                 leftMargin
             );
@@ -848,11 +761,6 @@ abstract contract OrderMixin is
         if (leftMargin > oppositePartyReward) {
             defaulterReturn = leftMargin - oppositePartyReward;
         }
-
-        console.log("Liquidation returns:");
-        console.log(liquidatorFee);
-        console.log(oppositePartyReward);
-        console.log(defaulterReturn);
 
         if (defaulter == order.maker) {
             _defaultOrder(order, orderHash, oppositePartyReward);
@@ -899,96 +807,6 @@ abstract contract OrderMixin is
         }
     }
 
-    function getCIRModelParams(
-        address asset,
-        int128 t,
-        int128 ewmaAPY
-    )
-        public
-        view
-        returns (
-            int128 k,
-            int128 lambda,
-            int128 ct
-        )
-    {
-        int128 beta = assetBeta[asset];
-        int128 sigma = assetSigma[asset];
-        console.log("Alpha, Beta, Sigma:");
-        console.log(uint128(assetAlpha[asset]));
-        console.log(uint128(beta));
-        console.log(uint128(sigma));
-
-        int128 exponent = ABDKMath64x64.exp2(
-            ABDKMath64x64.mul(
-                ABDKMath64x64.mul(ABDKMath64x64.mul(-1 * (1 << 64), beta), t),
-                _LOG2E
-            )
-        );
-        int128 numerator = ABDKMath64x64.mul(
-            ABDKMath64x64.mul(ABDKMath64x64.mul(4 * (1 << 64), beta), ewmaAPY),
-            exponent
-        );
-        int128 denominator = ABDKMath64x64.mul(
-            ABDKMath64x64.mul(sigma, sigma),
-            ABDKMath64x64.sub(1 * (1 << 64), exponent)
-        );
-
-        k = ABDKMath64x64.div(
-            ABDKMath64x64.mul(4 * (1 << 64), assetAlpha[asset]),
-            ABDKMath64x64.mul(sigma, sigma)
-        );
-        lambda = ABDKMath64x64.div(numerator, denominator);
-        ct = ABDKMath64x64.div(
-            denominator,
-            ABDKMath64x64.mul(4 * (1 << 64), beta)
-        );
-        console.log("K, Lambda, Ct:");
-        console.log(uint128(k));
-        console.log(uint128(lambda));
-        console.log(uint128(ct));
-    }
-
-    function getAPYBounds(
-        int128 k,
-        int128 lambda,
-        int128 ct,
-        int128 lowerBoundMul,
-        int128 upperBoundMul
-    ) public view returns (int128, int128) {
-        int128 sqrtTerm = ABDKMath64x64.mul(
-            2 * (1 << 64),
-            ABDKMath64x64.add(k, ABDKMath64x64.mul(2 * (1 << 64), lambda))
-        );
-        int128 sqrtCal = ABDKMath64x64.exp2(
-            ABDKMath64x64.mul(ABDKMath64x64.log2(sqrtTerm), _ONEBYTWO)
-        );
-        int128 upperBound = ABDKMath64x64.mul(
-            ct,
-            ABDKMath64x64.add(
-                ABDKMath64x64.add(k, lambda),
-                ABDKMath64x64.mul(upperBoundMul, sqrtCal)
-            )
-        );
-        int128 lowerBound = ABDKMath64x64.mul(
-            ct,
-            ABDKMath64x64.sub(
-                ABDKMath64x64.add(k, lambda),
-                ABDKMath64x64.mul(lowerBoundMul, sqrtCal)
-            )
-        );
-        // solhint-disable-next-line no-inline-assembly
-        assembly {
-            if gt(0, lowerBound) {
-                lowerBound := 0
-            }
-        }
-        console.log("Lower Bound, Upper Bound:");
-        console.log(uint128(lowerBound));
-        console.log(uint128(upperBound));
-        return (lowerBound, upperBound);
-    }
-
     function getInitialMarginReq(
         Order memory order,
         bytes32 orderHash,
@@ -1028,135 +846,43 @@ abstract contract OrderMixin is
     ) private view returns (uint256) {
         require(order.endTimestamp >= block.timestamp, "LOP: Order matured"); // solhint-disable-line
         require(!isOrderDefaulted[orderHash], "LOP: Order defaulted");
-        int128 apyLower;
-        int128 apyUpper;
-        int128 term = order.t;
-        int128 accruedAPY;
-        address asset = order.asset;
-        {
-            int128 ewma;
-            (accruedAPY, ewma) = getAverageAccruedAPYBetweenTimestamps(
-                asset,
-                order.underlyingAsset,
-                order.beginTimestamp,
-                block.timestamp // solhint-disable-line
-            );
-            console.log("apy: %s", uint128(accruedAPY));
-            int128 t = ABDKMath64x64.divu(
-                order.endTimestamp - block.timestamp,
-                order.endTimestamp - order.beginTimestamp
-            ); // solhint-disable-line
-            console.log("t: %s", uint128(t));
+        
+        bool forFixedTaker;
+        if(order.isFixedTaker && participant == order.maker) forFixedTaker = true;
+        if(!order.isFixedTaker && participant != order.maker) forFixedTaker = true;
 
-            (int128 k, int128 lambda, int128 ct) = getCIRModelParams(
-                asset,
-                t,
-                ewma
-            );
-            (apyLower, apyUpper) = getAPYBounds(
-                k,
-                lambda,
-                ct,
-                assetLowerBoundMul[asset],
-                assetUpperBoundMul[asset]
-            );
-        }
-        {
-            int128 w1 = ABDKMath64x64.divu(
-                block.timestamp - order.beginTimestamp,
-                order.endTimestamp - order.beginTimestamp
-            ); // solhint-disable-line
-            int128 w2 = ABDKMath64x64.divu(
-                order.endTimestamp - block.timestamp,
-                order.endTimestamp - order.beginTimestamp
-            ); // solhint-disable-line
-            apyLower = ABDKMath64x64.add(
-                ABDKMath64x64.mul(w1, accruedAPY),
-                ABDKMath64x64.mul(w2, apyLower)
-            );
-            apyUpper = ABDKMath64x64.add(
-                ABDKMath64x64.mul(w1, accruedAPY),
-                ABDKMath64x64.mul(w2, apyUpper)
-            );
-            apyLower = ABDKMath64x64.mul(apyLower, tl);
-            apyUpper = ABDKMath64x64.mul(apyUpper, tu);
-            console.log("APY Lower, APY Upper:");
-            console.log(uint128(apyLower));
-            console.log(uint128(apyUpper));
-        }
-        uint256 positiveMargin;
-        uint256 negativeMargin;
-        {
-            uint256 fixedTokens = orderParticipantFixedTokens[orderHash][
+        MarginLib.OrderInfo memory orderInfo = MarginLib.OrderInfo({
+            orderHash: orderHash,
+            beginTimestamp: order.beginTimestamp,
+            endTimestamp: order.endTimestamp,
+            isOrderDefaulted: isOrderDefaulted[orderHash],
+            term: order.t,
+            fixedTokens: orderParticipantFixedTokens[orderHash][
                 participant
-            ];
-            uint256 variableTokens = orderParticipantVariableTokens[orderHash][
+            ],
+            variableTokens: orderParticipantVariableTokens[orderHash][
                 participant
-            ];
-            if (order.isFixedTaker) {
-                console.log("Fixed");
-                if (participant == order.maker) {
-                    console.log("Maker");
-                    positiveMargin = ABDKMath64x64.mulu(
-                        ABDKMath64x64.mul(apyUpper, term),
-                        variableTokens
-                    );
-                    negativeMargin = ABDKMath64x64.mulu(
-                        ABDKMath64x64.mul(_ONEBYHUNDRED, term),
-                        fixedTokens
-                    );
-                } else {
-                    console.log("Non-maker");
-                    positiveMargin = ABDKMath64x64.mulu(
-                        ABDKMath64x64.mul(_ONEBYHUNDRED, term),
-                        fixedTokens
-                    );
-                    negativeMargin = ABDKMath64x64.mulu(
-                        ABDKMath64x64.mul(apyLower, term),
-                        variableTokens
-                    );
-                }
-            } else {
-                console.log("Variable");
-                if (participant == order.maker) {
-                    console.log("Maker");
-                    positiveMargin = ABDKMath64x64.mulu(
-                        ABDKMath64x64.mul(_ONEBYHUNDRED, term),
-                        fixedTokens
-                    );
-                    negativeMargin = ABDKMath64x64.mulu(
-                        ABDKMath64x64.mul(apyLower, term),
-                        variableTokens
-                    );
-                } else {
-                    console.log("Non-maker");
-                    positiveMargin = ABDKMath64x64.mulu(
-                        ABDKMath64x64.mul(apyUpper, term),
-                        variableTokens
-                    );
-                    negativeMargin = ABDKMath64x64.mulu(
-                        ABDKMath64x64.mul(_ONEBYHUNDRED, term),
-                        fixedTokens
-                    );
-                }
-            }
-            console.log("Positive Margin, Negative Margin:");
-            console.log(positiveMargin);
-            console.log(negativeMargin);
-        }
+            ],
+            forFixedTaker: forFixedTaker
+        });
 
-        uint256 marginReq = 0;
-        uint256 minMargin = 100;
-        // solhint-disable-next-line no-inline-assembly
-        assembly {
-            if gt(positiveMargin, negativeMargin) {
-                marginReq := sub(positiveMargin, negativeMargin)
-            }
-            if gt(minMargin, marginReq) {
-                marginReq := minMargin
-            }
-        }
-        return marginReq;
+        MarginLib.AssetInfo memory assetInfo = MarginLib.AssetInfo({
+            asset: order.asset,
+            underlyingAsset: order.underlyingAsset,
+            alpha: assetAlpha[order.asset],
+            beta: assetBeta[order.asset],
+            sigma: assetSigma[order.asset],
+            lowerBoundMul: assetLowerBoundMul[order.asset],
+            upperBoundMul: assetUpperBoundMul[order.asset]
+        });
+
+        return MarginLib.getMarginReqWithMuls(
+            _oracle,
+            orderInfo,
+            assetInfo,
+            tl,
+            tu
+        );
     }
 
     function getAverageAccruedAPYBetweenTimestamps(
@@ -1165,22 +891,13 @@ abstract contract OrderMixin is
         uint256 startTimestamp,
         uint256 endTimestamp
     ) public view returns (int128 apy, int128 ewma) {
-        bytes memory result = _oracle.functionStaticCall(
-            abi.encodeWithSelector(
-                OracleMock.getAverageAccruedAPYBetweenTimestamps.selector,
-                asset,
-                underlyingAsset,
-                startTimestamp,
-                endTimestamp
-            )
+        return MarginLib.getAverageAccruedAPYBetweenTimestamps(
+            _oracle,
+            asset,
+            underlyingAsset,
+            startTimestamp,
+            endTimestamp
         );
-        require(result.length == 32, "LOP: invalid call result");
-        int256 answer = result.decodeInt256();
-        apy = int128((answer << 128) >> 128);
-        ewma = int128(answer >> 128);
-        console.log("Mock Oracle");
-        console.log(uint128(apy));
-        console.log(uint128(ewma));
     }
 
     function _balance(address token) private view returns (uint256) {

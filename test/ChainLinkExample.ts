@@ -7,6 +7,7 @@ import { TokenMock } from "../typechain-types/TokenMock";
 import { LimitOrderProtocol } from "../typechain-types/LimitOrderProtocol";
 import { AggregatorMock } from "../typechain-types/AggregatorMock";
 import { OracleMock } from "../typechain-types/OracleMock";
+import { MarginLib } from "../typechain-types/MarginLib";
 
 import { buildOrderData } from "./helpers/orderUtils";
 import { toBN, cutLastArg } from "./helpers/utils";
@@ -16,6 +17,7 @@ describe("ChainLinkExample", async function () {
         daiWallet: TokenMock,
         oracle: AggregatorMock,
         apyOracle: OracleMock,
+        lib: MarginLib,
         swap: LimitOrderProtocol;
     let _: string, wallet: string;
     let chainId: any;
@@ -111,13 +113,11 @@ describe("ChainLinkExample", async function () {
                 await ethers.getSigners()
             )[1]
         );
-        const LimitOrderProtocolFactory = await ethers.getContractFactory(
-            "LimitOrderProtocol"
-        );
         const AggregatorMockFactory = await ethers.getContractFactory(
             "AggregatorMock"
         );
         const OracleMockFactory = await ethers.getContractFactory("OracleMock");
+        const LibFactory = await ethers.getContractFactory("MarginLib");
 
         dai = (await TokenMockFactory.deploy("DAI", "DAI")) as TokenMock;
         dai = await dai.deployed();
@@ -127,6 +127,18 @@ describe("ChainLinkExample", async function () {
             "251084069415467230335650862098906040028272338785178107248"
         )) as OracleMock;
         apyOracle = await apyOracle.deployed();
+
+        lib = (await LibFactory.deploy()) as MarginLib;
+        lib = await lib.deployed();
+
+        const LimitOrderProtocolFactory = await ethers.getContractFactory(
+            "LimitOrderProtocol",
+            {
+                libraries: {
+                    MarginLib: lib.address,
+                },
+            }
+        );
 
         swap = (await LimitOrderProtocolFactory.deploy(
             apyOracle.address

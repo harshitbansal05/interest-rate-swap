@@ -5,7 +5,6 @@ pragma abicoder v1;
 
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import "hardhat/console.sol";
 
 /// @title A helper contract for interactions with https://docs.chain.link
 contract ChainlinkCalculator {
@@ -28,12 +27,7 @@ contract ChainlinkCalculator {
     ) external view returns (uint256) {
         (, int256 latestAnswer, , , ) = oracle.latestRoundData();
         bool inverse = inverseAndSpread & _INVERSE_MASK > 0;
-        console.log("Oracle");
-        console.log(latestAnswer.toUint256());
-        console.log(inverse);
         uint256 spread = inverseAndSpread & (~_INVERSE_MASK);
-        console.log(spread);
-        console.log(amount);
         if (inverse) {
             return
                 ((1 << 64) * amount * spread) /
